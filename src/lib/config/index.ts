@@ -214,6 +214,18 @@ class ConfigManager {
         newProvider.hash = hash;
         delete newProvider.required;
 
+        if (
+          provider.key === 'openai' &&
+          process.env.OPENAI_DEFAULT_CHAT_MODEL
+        ) {
+          newProvider.chatModels.push({
+            name:
+              process.env.OPENAI_DEFAULT_CHAT_MODEL_NAME ||
+              'Qwen3.6 27B',
+            key: process.env.OPENAI_DEFAULT_CHAT_MODEL,
+          });
+        }
+
         const exists = this.currentConfig.modelProviders.find(
           (p) => p.hash === hash,
         );

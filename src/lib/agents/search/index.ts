@@ -7,11 +7,15 @@ import { WidgetExecutor } from './widgets';
 import db from '@/lib/db';
 import { messages } from '@/lib/db/schema';
 import { and, eq, gt } from 'drizzle-orm';
-import { TextBlock } from '@/lib/types';
+import { Block, TextBlock } from '@/lib/types';
 import { getTokenCount } from '@/lib/utils/splitText';
 
-class SearchAgent {
-  async searchAsync(session: SessionManager, input: SearchAgentInput) {
+const persistMessageState = async (
+  input: SearchAgentInput,
+  session: SessionManager,
+  patch?: { status: 'completed'; responseBlocks: Block[] },
+) => {
+  try {
     const exists = await db.query.messages.findFirst({
       where: and(
         eq(messages.chatId, input.chatId),
@@ -19,38 +23,61 @@ class SearchAgent {
       ),
     });
 
-    if (!exists) {
-      await db.insert(messages).values({
-        chatId: input.chatId,
-        messageId: input.messageId,
-        backendId: session.id,
-        query: input.followUp,
-        createdAt: new Date().toISOString(),
-        status: 'answering',
-        responseBlocks: [],
-      });
-    } else {
-      await db
-        .delete(messages)
-        .where(
-          and(eq(messages.chatId, input.chatId), gt(messages.id, exists.id)),
-        )
-        .execute();
-      await db
-        .update(messages)
-        .set({
-          status: 'answering',
+    if (!patch) {
+      if (!exists) {
+        await db.insert(messages).values({
+          chatId: input.chatId,
+          messageId: input.messageId,
           backendId: session.id,
+          query: input.followUp,
+          createdAt: new Date().toISOString(),
+          status: 'answering',
           responseBlocks: [],
-        })
-        .where(
-          and(
-            eq(messages.chatId, input.chatId),
-            eq(messages.messageId, input.messageId),
-          ),
-        )
-        .execute();
+        });
+      } else {
+        await db
+          .delete(messages)
+          .where(
+            and(eq(messages.chatId, input.chatId), gt(messages.id, exists.id)),
+          )
+          .execute();
+        await db
+          .update(messages)
+          .set({
+            status: 'answering',
+            backendId: session.id,
+            responseBlocks: [],
+          })
+          .where(
+            and(
+              eq(messages.chatId, input.chatId),
+              eq(messages.messageId, input.messageId),
+            ),
+          )
+          .execute();
+      }
+      return;
     }
+
+    await db
+      .update(messages)
+      .set(patch)
+      .where(
+        and(
+          eq(messages.chatId, input.chatId),
+          eq(messages.messageId, input.messageId),
+        ),
+      )
+      .execute();
+  } catch (err) {
+    console.error('Message persistence skipped (database unavailable):', err);
+  }
+};
+
+class SearchAgent {
+  async searchAsync(session: SessionManager, input: SearchAgentInput) {
+    try {
+      await persistMessageState(input, session);
 
     const classification = await classify({
       chatHistory: input.chatHistory,
@@ -173,19 +200,19 @@ class SearchAgent {
 
     session.emit('end', {});
 
-    await db
-      .update(messages)
-      .set({
-        status: 'completed',
-        responseBlocks: session.getAllBlocks(),
-      })
-      .where(
-        and(
-          eq(messages.chatId, input.chatId),
-          eq(messages.messageId, input.messageId),
-        ),
-      )
-      .execute();
+    await persistMessageState(input, session, {
+      status: 'completed',
+      responseBlocks: session.getAllBlocks(),
+    });
+    } catch (err: any) {
+      console.error('Search agent failed:', err);
+      session.emit('error', {
+        data:
+          err?.message ||
+          'Search failed. Check server logs, model API keys, and SearxNG.',
+      });
+      session.emit('end', {});
+    }
   }
 }
 

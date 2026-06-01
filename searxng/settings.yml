@@ -18,3 +18,8 @@ server:
 engines:
   - name: wolframalpha
     disabled: false
+  # Reduce CAPTCHA / rate-limit stalls from Docker egress IPs
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true

@@ -130,23 +130,70 @@ const providerConfigFields: UIConfigField[] = [
   },
 ];
 
+const normalizeBaseURL = (baseURL: string) => baseURL.replace(/\/$/, '');
+
+const isOfficialOpenAIBaseURL = (baseURL: string) =>
+  normalizeBaseURL(baseURL) === 'https://api.openai.com/v1';
+
 class OpenAIProvider extends BaseModelProvider<OpenAIConfig> {
   constructor(id: string, name: string, config: OpenAIConfig) {
     super(id, name, config);
   }
 
+  private async fetchRemoteModels(): Promise<ModelList> {
+    const baseURL = normalizeBaseURL(this.config.baseURL);
+    const modelPrefix = process.env.OPENAI_MODEL_PREFIX?.trim();
+
+    const res = await fetch(`${baseURL}/models`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `Failed to list models from ${baseURL} (${res.status} ${res.statusText})`,
+      );
+    }
+
+    const data = await res.json();
+    const models: Model[] = (data.data ?? [])
+      .filter((m: { id?: string }) => {
+        if (!m.id) return false;
+        if (!modelPrefix) return true;
+        return m.id.toLowerCase().startsWith(modelPrefix.toLowerCase());
+      })
+      .map((m: { id: string; name?: string }) => ({
+        key: m.id,
+        name: m.name ?? m.id,
+      }))
+      .sort((a: Model, b: Model) => a.name.localeCompare(b.name));
+
+    return {
+      chat: models,
+      embedding: [],
+    };
+  }
+
   async getDefaultModels(): Promise<ModelList> {
-    if (this.config.baseURL === 'https://api.openai.com/v1') {
+    if (isOfficialOpenAIBaseURL(this.config.baseURL)) {
       return {
         embedding: defaultEmbeddingModels,
         chat: defaultChatModels,
       };
     }
 
-    return {
-      embedding: [],
-      chat: [],
-    };
+    try {
+      return await this.fetchRemoteModels();
+    } catch (err) {
+      console.error('Error fetching remote OpenAI-compatible models:', err);
+      return {
+        embedding: [],
+        chat: [],
+      };
+    }
   }
 
   async getModelList(): Promise<ModelList> {
