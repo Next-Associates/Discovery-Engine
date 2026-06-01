@@ -44,6 +44,10 @@ export const searchSearxng = async (
   try {
     const res = await fetch(url, {
       signal: controller.signal,
+      headers: {
+        'X-Forwarded-For': '127.0.0.1',
+        'X-Real-IP': '127.0.0.1',
+      },
     });
 
     if (!res.ok) {
