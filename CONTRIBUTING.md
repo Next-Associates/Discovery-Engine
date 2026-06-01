@@ -1,6 +1,6 @@
-# How to Contribute to Vane
+# Development guide
 
-Thanks for your interest in contributing to Vane! Your help makes this project better. This guide explains how to contribute effectively.
+This document describes the Vane codebase for internal development and customization.
 
 Vane is a modern AI chat application with advanced search capabilities.
 
@@ -71,12 +71,9 @@ For full installation options (Docker and non Docker), see the installation guid
 
 **Please note**: Docker configurations are present for setting up production environments, whereas `npm run dev` is used for development purposes.
 
-## Coding and Contribution Practices
+## Development practices
 
 Before committing changes:
 
-1. Ensure that your code functions correctly by thorough testing.
-2. Always run `npm run format:write` to format your code according to the project's coding standards. This helps maintain consistency and code quality.
-3. We currently do not have a code of conduct, but it is in the works. In the meantime, please be mindful of how you engage with the project and its community.
-
-Following these steps will help maintain the integrity of Vane's codebase and facilitate a smoother integration of your valuable contributions. Thank you for your support and commitment to improving Vane.
+1. Test your changes thoroughly.
+2. Run `npm run format:write` to match project formatting.

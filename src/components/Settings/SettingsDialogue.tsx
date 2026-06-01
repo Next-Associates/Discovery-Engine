@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   BrainCog,
   ChevronLeft,
-  ExternalLink,
   Search,
   Sliders,
   ToggleRight,
@@ -153,15 +152,6 @@ const SettingsDialogue = ({
                   <p className="text-xs text-black/70 dark:text-white/70">
                     Version: {process.env.NEXT_PUBLIC_VERSION}
                   </p>
-                  <a
-                    href="https://github.com/itzcrazykns/vane"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-black/70 dark:text-white/70 flex flex-row space-x-1 items-center transition duration-200 hover:text-black/90 hover:dark:text-white/90"
-                  >
-                    <span>GitHub</span>
-                    <ExternalLink size={12} />
-                  </a>
                 </div>
               </div>
               <div className="w-full flex flex-col overflow-hidden">
