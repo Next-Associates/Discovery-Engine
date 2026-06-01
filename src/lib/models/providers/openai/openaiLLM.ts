@@ -27,6 +27,43 @@ type OpenAIConfig = {
   options?: GenerateOptions;
 };
 
+/** Models on OpenRouter that stream chain-of-thought into `delta.reasoning` instead of `delta.content`. */
+const OPENROUTER_REASONING_MODEL_PATTERNS = [
+  'qwen3',
+  'deepseek-r1',
+  'deepseek-v3.1',
+  'gpt-oss',
+  'magistral',
+  'nemotron-3',
+  'nemotron-cascade-2',
+  'glm-4.7',
+];
+
+function isOpenRouterBaseURL(baseURL?: string): boolean {
+  return Boolean(baseURL?.includes('openrouter.ai'));
+}
+
+/** OpenRouter: disable thinking tokens so answers stream in `delta.content` (required for Qwen3.6 27B). */
+function openRouterReasoningParams(
+  baseURL: string | undefined,
+  model: string,
+): { reasoning: { effort: 'none'; exclude: true } } | undefined {
+  if (!isOpenRouterBaseURL(baseURL)) {
+    return undefined;
+  }
+
+  const modelLower = model.toLowerCase();
+  const usesReasoningStream = OPENROUTER_REASONING_MODEL_PATTERNS.some((p) =>
+    modelLower.includes(p),
+  );
+
+  if (!usesReasoningStream) {
+    return undefined;
+  }
+
+  return { reasoning: { effort: 'none', exclude: true } };
+}
+
 class OpenAILLM extends BaseLLM<OpenAIConfig> {
   openAIClient: OpenAI;
 
@@ -87,6 +124,7 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
       model: this.config.model,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       messages: this.convertToOpenAIMessages(input.messages),
+      ...openRouterReasoningParams(this.config.baseURL, this.config.model),
       temperature:
         input.options?.temperature ?? this.config.options?.temperature ?? 1.0,
       top_p: input.options?.topP ?? this.config.options?.topP,
@@ -101,8 +139,9 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     });
 
     if (response.choices && response.choices.length > 0) {
+      const message = response.choices[0].message;
       return {
-        content: response.choices[0].message.content!,
+        content: message.content ?? '',
         toolCalls:
           response.choices[0].message.tool_calls
             ?.map((tc) => {
@@ -144,6 +183,7 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
       model: this.config.model,
       messages: this.convertToOpenAIMessages(input.messages),
       tools: openaiTools.length > 0 ? openaiTools : undefined,
+      ...openRouterReasoningParams(this.config.baseURL, this.config.model),
       temperature:
         input.options?.temperature ?? this.config.options?.temperature ?? 1.0,
       top_p: input.options?.topP ?? this.config.options?.topP,
@@ -164,8 +204,9 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     for await (const chunk of stream) {
       if (chunk.choices && chunk.choices.length > 0) {
         const toolCalls = chunk.choices[0].delta.tool_calls;
+        const delta = chunk.choices[0].delta;
         yield {
-          contentChunk: chunk.choices[0].delta.content || '',
+          contentChunk: delta.content || '',
           toolCallChunk:
             toolCalls?.map((tc) => {
               if (!recievedToolCalls[tc.index]) {
@@ -198,6 +239,7 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     const response = await this.openAIClient.chat.completions.parse({
       messages: this.convertToOpenAIMessages(input.messages),
       model: this.config.model,
+      ...openRouterReasoningParams(this.config.baseURL, this.config.model),
       temperature:
         input.options?.temperature ?? this.config.options?.temperature ?? 1.0,
       top_p: input.options?.topP ?? this.config.options?.topP,
