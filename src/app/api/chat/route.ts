@@ -210,7 +210,7 @@ export const POST = async (req: Request) => {
       }
     });
 
-    agent.searchAsync(session, {
+    void agent.searchAsync(session, {
       chatHistory: history,
       followUp: message.content,
       chatId: body.message.chatId,
@@ -223,6 +223,12 @@ export const POST = async (req: Request) => {
         fileIds: body.files,
         systemInstructions: body.systemInstructions || 'None',
       },
+    }).catch((err) => {
+      console.error('Unhandled searchAsync rejection:', err);
+      session.emit('error', {
+        data: err?.message || 'Search failed unexpectedly.',
+      });
+      session.emit('end', {});
     });
 
     ensureChatExists({

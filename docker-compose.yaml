@@ -1,12 +1,17 @@
 services:
   vane:
-    image: itzcrazykns1337/vane:latest
+    image: vane:latest
     build:
       context: .
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /home/vane
     ports:
       - '3000:3000'
     volumes:
       - data:/home/vane/data
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
 
 volumes:

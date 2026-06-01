@@ -33,6 +33,10 @@ COPY --from=builder /home/vane/data ./data
 COPY drizzle ./drizzle
 
 RUN mkdir /home/vane/uploads
+RUN mkdir -p /home/vane/data/transformers-cache
+
+ENV TRANSFORMERS_CACHE=/home/vane/data/transformers-cache
+ENV HF_HOME=/home/vane/data/transformers-cache
 
 RUN yarn add playwright
 RUN yarn playwright install --with-deps --only-shell chromium

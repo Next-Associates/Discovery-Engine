@@ -48,28 +48,46 @@ export const executeSearch = async (input: {
       let resultChunks: Chunk[] = [];
 
       try {
-        const queryEmbedding = (await input.embedding.embedText([q]))[0];
+        const cappedResults = res.results.slice(0, 15);
 
-        resultChunks = (
-          await Promise.all(
-            res.results.map(async (r) => {
-              const content = r.content || r.title;
-              const chunkEmbedding = (
-                await input.embedding.embedText([content])
-              )[0];
+        if (input.mode === 'speed') {
+          resultChunks = cappedResults.map((r) => {
+            const content = r.content || r.title;
+            return {
+              content,
+              metadata: {
+                title: r.title,
+                url: r.url,
+                similarity: 1,
+                embedding: [],
+              },
+            };
+          });
+        } else {
+          const queryEmbedding = (await input.embedding.embedText([q]))[0];
+          const contents = cappedResults.map((r) => r.content || r.title);
+          const chunkEmbeddings = await input.embedding.embedText(contents);
+
+          resultChunks = cappedResults
+            .map((r, i) => {
+              const content = contents[i];
+              const chunkEmbedding = chunkEmbeddings[i];
 
               return {
                 content,
                 metadata: {
                   title: r.title,
                   url: r.url,
-                  similarity: computeSimilarity(queryEmbedding, chunkEmbedding),
+                  similarity: computeSimilarity(
+                    queryEmbedding,
+                    chunkEmbedding,
+                  ),
                   embedding: chunkEmbedding,
                 },
               };
-            }),
-          )
-        ).filter((c) => c.metadata.similarity > 0.5);
+            })
+            .filter((c) => c.metadata.similarity > 0.5);
+        }
       } catch (err) {
         resultChunks = res.results.map((r) => {
           const content = r.content || r.title;
