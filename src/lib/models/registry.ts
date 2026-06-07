@@ -4,6 +4,7 @@ import { getConfiguredModelProviders } from '../config/serverRegistry';
 import { providers } from './providers';
 import { MinimalProvider, ModelList } from './types';
 import configManager from '../config';
+import { dedupeModelsByKey } from './utils';
 
 class ModelRegistry {
   activeProviders: (ConfigModelProvider & {
@@ -62,8 +63,8 @@ class ModelRegistry {
         providers.push({
           id: p.id,
           name: p.name,
-          chatModels: m.chat,
-          embeddingModels: m.embedding,
+          chatModels: dedupeModelsByKey(m.chat),
+          embeddingModels: dedupeModelsByKey(m.embedding),
         });
       }),
     );
@@ -135,8 +136,8 @@ class ModelRegistry {
 
     return {
       ...newProvider,
-      chatModels: m.chat || [],
-      embeddingModels: m.embedding || [],
+      chatModels: dedupeModelsByKey(m.chat || []),
+      embeddingModels: dedupeModelsByKey(m.embedding || []),
     };
   }
 
@@ -193,8 +194,8 @@ class ModelRegistry {
 
     return {
       ...updated,
-      chatModels: m.chat || [],
-      embeddingModels: m.embedding || [],
+      chatModels: dedupeModelsByKey(m.chat || []),
+      embeddingModels: dedupeModelsByKey(m.embedding || []),
     };
   }
 

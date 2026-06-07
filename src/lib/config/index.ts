@@ -7,7 +7,8 @@ import { getModelProvidersUIConfigSection } from '../models/providers';
 class ConfigManager {
   configPath: string = path.join(
     process.env.DATA_DIR || process.cwd(),
-    '/data/config.json',
+    'data',
+    'config.json',
   );
   configVersion = 1;
   currentConfig: Config = {
@@ -126,23 +127,36 @@ class ConfigManager {
   }
 
   private saveConfig() {
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
     fs.writeFileSync(
       this.configPath,
       JSON.stringify(this.currentConfig, null, 2),
     );
   }
 
+  private reloadConfigFromDisk() {
+    if (!fs.existsSync(this.configPath)) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(
+        fs.readFileSync(this.configPath, 'utf-8'),
+      ) as Config;
+      this.currentConfig = this.migrateConfig(parsed);
+    } catch (err) {
+      console.error(`Error reloading config from ${this.configPath}:`, err);
+    }
+  }
+
   private initializeConfig() {
     const exists = fs.existsSync(this.configPath);
     if (!exists) {
-      fs.writeFileSync(
-        this.configPath,
-        JSON.stringify(this.currentConfig, null, 2),
-      );
+      this.saveConfig();
     } else {
       try {
-        this.currentConfig = JSON.parse(
-          fs.readFileSync(this.configPath, 'utf-8'),
+        this.currentConfig = this.migrateConfig(
+          JSON.parse(fs.readFileSync(this.configPath, 'utf-8')),
         );
       } catch (err) {
         if (err instanceof SyntaxError) {
@@ -153,10 +167,7 @@ class ConfigManager {
           console.log(
             'Loading default config and overwriting the existing file.',
           );
-          fs.writeFileSync(
-            this.configPath,
-            JSON.stringify(this.currentConfig, null, 2),
-          );
+          this.saveConfig();
           return;
         } else {
           console.log('Unknown error reading config file:', err);
@@ -168,8 +179,10 @@ class ConfigManager {
   }
 
   private migrateConfig(config: Config): Config {
-    /* TODO: Add migrations */
-    return config;
+    return {
+      ...config,
+      setupComplete: config.setupComplete ?? false,
+    };
   }
 
   private initializeFromEnv() {
@@ -377,14 +390,13 @@ class ConfigManager {
   }
 
   public isSetupComplete() {
+    this.reloadConfigFromDisk();
     return this.currentConfig.setupComplete;
   }
 
   public markSetupComplete() {
-    if (!this.currentConfig.setupComplete) {
-      this.currentConfig.setupComplete = true;
-    }
-
+    this.reloadConfigFromDisk();
+    this.currentConfig.setupComplete = true;
     this.saveConfig();
   }
 

@@ -7,7 +7,10 @@ type TransformerConfig = {
 };
 
 class TransformerEmbedding extends BaseEmbedding<TransformerConfig> {
-  private pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
+  private static pipelines = new Map<
+    string,
+    Promise<FeatureExtractionPipeline>
+  >();
 
   constructor(protected config: TransformerConfig) {
     super(config);
@@ -22,17 +25,30 @@ class TransformerEmbedding extends BaseEmbedding<TransformerConfig> {
   }
 
   private async embed(texts: string[]) {
-    if (!this.pipelinePromise) {
-      this.pipelinePromise = (async () => {
+    const modelKey = this.config.model;
+    let pipelinePromise = TransformerEmbedding.pipelines.get(modelKey);
+
+    if (!pipelinePromise) {
+      pipelinePromise = (async () => {
         const { pipeline } = await import('@huggingface/transformers');
-        const result = await pipeline('feature-extraction', this.config.model, {
-          dtype: 'fp32',
-        });
-        return result as FeatureExtractionPipeline;
+        try {
+          const result = await pipeline('feature-extraction', modelKey, {
+            dtype: 'fp32',
+          });
+          return result as FeatureExtractionPipeline;
+        } catch (err) {
+          TransformerEmbedding.pipelines.delete(modelKey);
+          const hint =
+            ' If the model cache is corrupt, delete node_modules/@huggingface/transformers/.cache and retry.';
+          throw new Error(
+            `Failed to load embedding model "${modelKey}".${hint} ${err instanceof Error ? err.message : err}`,
+          );
+        }
       })();
+      TransformerEmbedding.pipelines.set(modelKey, pipelinePromise);
     }
 
-    const pipe = await this.pipelinePromise;
+    const pipe = await pipelinePromise;
     const output = await pipe(texts, { pooling: 'mean', normalize: true });
     return output.tolist() as number[][];
   }

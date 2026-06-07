@@ -33,7 +33,10 @@ export default function RootLayout({
 
   return (
     <html className="h-full" lang="en" suppressHydrationWarning>
-      <body className={cn('h-full antialiased', montserrat.className)}>
+      <body
+        className={cn('h-full antialiased', montserrat.className)}
+        suppressHydrationWarning
+      >
         <ThemeProvider>
           {setupComplete ? (
             <ChatProvider>

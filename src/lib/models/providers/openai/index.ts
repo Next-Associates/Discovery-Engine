@@ -6,6 +6,7 @@ import BaseEmbedding from '../../base/embedding';
 import BaseModelProvider from '../../base/provider';
 import BaseLLM from '../../base/llm';
 import OpenAILLM from './openaiLLM';
+import { mergeModelsByKey } from '../../utils';
 
 interface OpenAIConfig {
   apiKey: string;
@@ -201,11 +202,11 @@ class OpenAIProvider extends BaseModelProvider<OpenAIConfig> {
     const configProvider = getConfiguredModelProviderById(this.id)!;
 
     return {
-      embedding: [
-        ...defaultModels.embedding,
-        ...configProvider.embeddingModels,
-      ],
-      chat: [...defaultModels.chat, ...configProvider.chatModels],
+      embedding: mergeModelsByKey(
+        defaultModels.embedding,
+        configProvider.embeddingModels,
+      ),
+      chat: mergeModelsByKey(defaultModels.chat, configProvider.chatModels),
     };
   }
 

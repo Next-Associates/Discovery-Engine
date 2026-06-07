@@ -12,6 +12,10 @@ import { parse } from 'partial-json';
 import crypto from 'crypto';
 import { Message } from '@/lib/types';
 import { repairJson } from '@toolsycc/json-repair';
+import {
+  formatSchemaParseError,
+  normalizeStructuredOutput,
+} from '@/lib/utils/normalizeStructuredOutput';
 
 type OllamaConfig = {
   baseURL: string;
@@ -208,15 +212,27 @@ class OllamaLLM extends BaseLLM<OllamaConfig> {
     });
 
     try {
+      const repaired = repairJson(response.message.content, {
+        extractJson: true,
+      }) as string;
+
+      if (!repaired || repaired.trim() === '') {
+        throw new Error('Ollama returned empty structured response.');
+      }
+
+      const parsed = JSON.parse(repaired);
+
+      if (parsed === null || parsed === undefined) {
+        throw new Error('Ollama returned null structured output.');
+      }
+
       return input.schema.parse(
-        JSON.parse(
-          repairJson(response.message.content, {
-            extractJson: true,
-          }) as string,
-        ),
+        normalizeStructuredOutput(parsed, input.schema),
       ) as T;
     } catch (err) {
-      throw new Error(`Error parsing response from Ollama: ${err}`);
+      throw new Error(
+        `Error parsing response from Ollama: ${formatSchemaParseError(err)}`,
+      );
     }
   }
 

@@ -5,6 +5,7 @@ import BaseModelProvider from '../../base/provider';
 import BaseLLM from '../../base/llm';
 import BaseEmbedding from '../../base/embedding';
 import TransformerEmbedding from './transformerEmbedding';
+import { mergeModelsByKey } from '../../utils';
 
 interface TransformersConfig {}
 
@@ -42,10 +43,10 @@ class TransformersProvider extends BaseModelProvider<TransformersConfig> {
     const configProvider = getConfiguredModelProviderById(this.id)!;
 
     return {
-      embedding: [
-        ...defaultModels.embedding,
-        ...configProvider.embeddingModels,
-      ],
+      embedding: mergeModelsByKey(
+        defaultModels.embedding,
+        configProvider.embeddingModels,
+      ),
       chat: [],
     };
   }

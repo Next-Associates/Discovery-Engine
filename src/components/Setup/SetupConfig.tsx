@@ -11,6 +11,35 @@ import AddProvider from '../Settings/Sections/Models/AddProviderDialog';
 import ModelProvider from '../Settings/Sections/Models/ModelProvider';
 import ModelSelect from '@/components/Settings/Sections/Models/ModelSelect';
 
+const persistDefaultModelSelections = (providers: ConfigModelProvider[]) => {
+  const chatProvider =
+    providers.find(
+      (provider) =>
+        provider.name.toLowerCase() !== 'transformers' &&
+        provider.chatModels.some((model) => model.key !== 'error'),
+    ) ?? providers.find((provider) => provider.chatModels.length > 0);
+
+  const embeddingProvider = providers.find(
+    (provider) => provider.embeddingModels.length > 0,
+  );
+
+  if (chatProvider && !localStorage.getItem('chatModelKey')) {
+    const chatModel =
+      chatProvider.chatModels.find((model) => model.key !== 'error') ??
+      chatProvider.chatModels[0];
+
+    localStorage.setItem('chatModelProviderId', chatProvider.id);
+    localStorage.setItem('chatModelKey', chatModel.key);
+  }
+
+  if (embeddingProvider && !localStorage.getItem('embeddingModelKey')) {
+    const embeddingModel = embeddingProvider.embeddingModels[0];
+
+    localStorage.setItem('embeddingModelProviderId', embeddingProvider.id);
+    localStorage.setItem('embeddingModelKey', embeddingModel.key);
+  }
+};
+
 const SetupConfig = ({
   configSections,
   setupState,
@@ -49,16 +78,28 @@ const SetupConfig = ({
   const handleFinish = async () => {
     try {
       setIsFinishing(true);
+      persistDefaultModelSelections(providers);
+
       const res = await fetch('/api/config/setup-complete', {
         method: 'POST',
       });
 
       if (!res.ok) throw new Error('Failed to complete setup');
 
+      const configRes = await fetch('/api/config');
+      if (!configRes.ok) throw new Error('Failed to verify setup state');
+
+      const config = await configRes.json();
+      if (!config.values?.setupComplete) {
+        throw new Error('Setup did not persist. Check server write permissions.');
+      }
+
       window.location.reload();
     } catch (error) {
       console.error('Error completing setup:', error);
-      toast.error('Failed to complete setup');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to complete setup',
+      );
       setIsFinishing(false);
     }
   };
