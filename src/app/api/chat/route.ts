@@ -125,36 +125,15 @@ export const POST = async (req: Request) => {
       );
     }
 
-    const registry = new ModelRegistry();
-
-    const [llm, embedding] = await Promise.all([
-      registry.loadChatModel(body.chatModel.providerId, body.chatModel.key),
-      registry.loadEmbeddingModel(
-        body.embeddingModel.providerId,
-        body.embeddingModel.key,
-      ),
-    ]);
-
-    const history: ChatTurnMessage[] = body.history.map((msg) => {
-      if (msg[0] === 'human') {
-        return {
-          role: 'user',
-          content: msg[1],
-        };
-      } else {
-        return {
-          role: 'assistant',
-          content: msg[1],
-        };
-      }
-    });
-
-    const agent = new SearchAgent();
     const session = SessionManager.createSession();
 
     const responseStream = new TransformStream();
     const writer = responseStream.writable.getWriter();
     const encoder = new TextEncoder();
+
+    void writer.write(
+      encoder.encode(JSON.stringify({ type: 'streamStart' }) + '\n'),
+    );
 
     const disconnect = session.subscribe((event: string, data: any) => {
       if (event === 'data') {
@@ -210,26 +189,51 @@ export const POST = async (req: Request) => {
       }
     });
 
-    void agent.searchAsync(session, {
-      chatHistory: history,
-      followUp: message.content,
-      chatId: body.message.chatId,
-      messageId: body.message.messageId,
-      config: {
-        llm,
-        embedding: embedding,
-        sources: body.sources as SearchSources[],
-        mode: body.optimizationMode,
-        fileIds: body.files,
-        systemInstructions: body.systemInstructions || 'None',
-      },
-    }).catch((err) => {
-      console.error('Unhandled searchAsync rejection:', err);
-      session.emit('error', {
-        data: err?.message || 'Search failed unexpectedly.',
-      });
-      session.emit('end', {});
-    });
+    void (async () => {
+      try {
+        const registry = new ModelRegistry();
+
+        const [llm, embedding] = await Promise.all([
+          registry.loadChatModel(body.chatModel.providerId, body.chatModel.key),
+          registry.loadEmbeddingModel(
+            body.embeddingModel.providerId,
+            body.embeddingModel.key,
+          ),
+        ]);
+
+        const history: ChatTurnMessage[] = body.history.map((msg) => {
+          if (msg[0] === 'human') {
+            return { role: 'user' as const, content: msg[1] };
+          }
+          return { role: 'assistant' as const, content: msg[1] };
+        });
+
+        const agent = new SearchAgent();
+        await agent.searchAsync(session, {
+          chatHistory: history,
+          followUp: message.content,
+          chatId: body.message.chatId,
+          messageId: body.message.messageId,
+          config: {
+            llm,
+            embedding,
+            sources: body.sources as SearchSources[],
+            mode: body.optimizationMode,
+            fileIds: body.files,
+            systemInstructions: body.systemInstructions || 'None',
+          },
+        });
+      } catch (err) {
+        console.error('Unhandled chat pipeline rejection:', err);
+        session.emit('error', {
+          data:
+            err instanceof Error
+              ? err.message
+              : 'Search failed unexpectedly.',
+        });
+        session.emit('end', {});
+      }
+    })();
 
     ensureChatExists({
       id: body.message.chatId,

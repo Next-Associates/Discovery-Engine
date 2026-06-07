@@ -19,6 +19,10 @@ import {
 } from 'openai/resources/index.mjs';
 import { Message } from '@/lib/types';
 import { repairJson } from '@toolsycc/json-repair';
+import {
+  formatSchemaParseError,
+  normalizeStructuredOutput,
+} from '@/lib/utils/normalizeStructuredOutput';
 
 type OpenAIConfig = {
   apiKey: string;
@@ -73,6 +77,8 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     this.openAIClient = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.baseURL || 'https://api.openai.com/v1',
+      timeout: 120_000,
+      maxRetries: 1,
     });
   }
 
@@ -201,6 +207,22 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     let recievedToolCalls: { name: string; id: string; arguments: string }[] =
       [];
 
+    const parseToolArguments = (raw: string): Record<string, unknown> => {
+      try {
+        const parsed = parse(raw || '{}');
+        if (
+          parsed === null ||
+          typeof parsed !== 'object' ||
+          Array.isArray(parsed)
+        ) {
+          return {};
+        }
+        return parsed as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    };
+
     for await (const chunk of stream) {
       if (chunk.choices && chunk.choices.length > 0) {
         const toolCalls = chunk.choices[0].delta.tool_calls;
@@ -216,13 +238,13 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
                   arguments: tc.function?.arguments || '',
                 };
                 recievedToolCalls.push(call);
-                return { ...call, arguments: parse(call.arguments || '{}') };
+                return { ...call, arguments: parseToolArguments(call.arguments) };
               } else {
                 const existingCall = recievedToolCalls[tc.index];
                 existingCall.arguments += tc.function?.arguments || '';
                 return {
                   ...existingCall,
-                  arguments: parse(existingCall.arguments || '{}'),
+                  arguments: parseToolArguments(existingCall.arguments),
                 };
               }
             }) || [],
@@ -255,16 +277,42 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
     });
 
     if (response.choices && response.choices.length > 0) {
-      try {
+      const message = response.choices[0].message;
+
+      if (
+        'parsed' in message &&
+        message.parsed !== null &&
+        message.parsed !== undefined
+      ) {
         return input.schema.parse(
-          JSON.parse(
-            repairJson(response.choices[0].message.content!, {
-              extractJson: true,
-            }) as string,
-          ),
+          normalizeStructuredOutput(message.parsed, input.schema),
+        ) as T;
+      }
+
+      const content = message.content;
+      if (content == null || content.trim() === '') {
+        throw new Error(
+          'Model returned an empty structured response. Retry or switch models.',
+        );
+      }
+
+      try {
+        const repaired = repairJson(content, { extractJson: true }) as string;
+        const parsed = JSON.parse(repaired);
+
+        if (parsed === null || parsed === undefined) {
+          throw new Error(
+            'Model returned null structured output. Retry or switch models.',
+          );
+        }
+
+        return input.schema.parse(
+          normalizeStructuredOutput(parsed, input.schema),
         ) as T;
       } catch (err) {
-        throw new Error(`Error parsing response from OpenAI: ${err}`);
+        throw new Error(
+          `Error parsing response from OpenAI: ${formatSchemaParseError(err)}`,
+        );
       }
     }
 

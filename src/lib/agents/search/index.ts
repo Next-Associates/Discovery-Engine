@@ -1,4 +1,5 @@
 import { ResearcherOutput, SearchAgentInput } from './types';
+import { formatSchemaParseError } from '@/lib/utils/normalizeStructuredOutput';
 import SessionManager from '@/lib/session';
 import { classify } from './classifier';
 import Researcher from './researcher';
@@ -74,8 +75,46 @@ const persistMessageState = async (
   }
 };
 
+const SEARCH_TIMEOUT_MS: Record<
+  SearchAgentInput['config']['mode'],
+  number
+> = {
+  speed: 90_000,
+  balanced: 180_000,
+  quality: 300_000,
+};
+
 class SearchAgent {
   async searchAsync(session: SessionManager, input: SearchAgentInput) {
+    const timeoutMs = SEARCH_TIMEOUT_MS[input.config.mode];
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `Search timed out after ${Math.round(timeoutMs / 1000)}s. Try speed mode or a simpler query.`,
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      await Promise.race([
+        this.runSearch(session, input),
+        timeoutPromise,
+      ]);
+    } catch (err: unknown) {
+      console.error('Search agent failed:', err);
+      session.emit('error', {
+        data:
+          formatSchemaParseError(err) ||
+          'Search failed. Check server logs, model API keys, and SearxNG.',
+      });
+      session.emit('end', {});
+    }
+  }
+
+  private async runSearch(session: SessionManager, input: SearchAgentInput) {
     try {
       await persistMessageState(input, session);
 
@@ -205,13 +244,7 @@ class SearchAgent {
       responseBlocks: session.getAllBlocks(),
     });
     } catch (err: any) {
-      console.error('Search agent failed:', err);
-      session.emit('error', {
-        data:
-          err?.message ||
-          'Search failed. Check server logs, model API keys, and SearxNG.',
-      });
-      session.emit('end', {});
+      throw err;
     }
   }
 }

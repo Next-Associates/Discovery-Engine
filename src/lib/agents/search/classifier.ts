@@ -1,5 +1,5 @@
 import z from 'zod';
-import { ClassifierInput } from './types';
+import { ClassifierInput, ClassifierOutput } from './types';
 import { classifierPrompt } from '@/lib/prompts/search/classifier';
 import formatChatHistoryAsString from '@/lib/utils/formatHistory';
 
@@ -34,20 +34,40 @@ const schema = z.object({
     ),
 });
 
-export const classify = async (input: ClassifierInput) => {
-  const output = await input.llm.generateObject<typeof schema>({
-    messages: [
-      {
-        role: 'system',
-        content: classifierPrompt,
-      },
-      {
-        role: 'user',
-        content: `<conversation_history>\n${formatChatHistoryAsString(input.chatHistory)}\n</conversation_history>\n<user_query>\n${input.query}\n</user_query>`,
-      },
-    ],
-    schema,
-  });
+export function defaultClassification(query: string): ClassifierOutput {
+  return {
+    classification: {
+      skipSearch: false,
+      personalSearch: false,
+      academicSearch: false,
+      discussionSearch: false,
+      showWeatherWidget: false,
+      showStockWidget: false,
+      showCalculationWidget: false,
+    },
+    standaloneFollowUp: query,
+  };
+}
 
-  return output;
+export const classify = async (input: ClassifierInput) => {
+  try {
+    const output = await input.llm.generateObject<typeof schema>({
+      messages: [
+        {
+          role: 'system',
+          content: classifierPrompt,
+        },
+        {
+          role: 'user',
+          content: `<conversation_history>\n${formatChatHistoryAsString(input.chatHistory)}\n</conversation_history>\n<user_query>\n${input.query}\n</user_query>`,
+        },
+      ],
+      schema,
+    });
+
+    return output;
+  } catch (err) {
+    console.error('Classifier failed, using safe defaults:', err);
+    return defaultClassification(input.query);
+  }
 };

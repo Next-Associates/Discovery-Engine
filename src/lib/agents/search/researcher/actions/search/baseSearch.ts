@@ -8,6 +8,7 @@ import computeSimilarity from '@/lib/utils/computeSimilarity';
 import z from 'zod';
 import Scraper from '@/lib/scraper';
 import { splitText } from '@/lib/utils/splitText';
+import { getExtractorPrompt } from '@/lib/prompts/search/extractor';
 
 export const executeSearch = async (input: {
   queries: string[];
@@ -41,9 +42,16 @@ export const executeSearch = async (input: {
     const results: Chunk[] = [];
 
     const search = async (q: string) => {
-      const res = await searchSearxng(q, {
-        ...(input.searchConfig ? input.searchConfig : {}),
-      });
+      let res: Awaited<ReturnType<typeof searchSearxng>>;
+
+      try {
+        res = await searchSearxng(q, {
+          ...(input.searchConfig ? input.searchConfig : {}),
+        });
+      } catch (err) {
+        console.warn('SearXNG search failed for query:', q, err);
+        return;
+      }
 
       let resultChunks: Chunk[] = [];
 
@@ -194,9 +202,16 @@ export const executeSearch = async (input: {
     const searchResults: Chunk[] = [];
 
     const search = async (q: string) => {
-      const res = await searchSearxng(q, {
-        ...(input.searchConfig ? input.searchConfig : {}),
-      });
+      let res: Awaited<ReturnType<typeof searchSearxng>>;
+
+      try {
+        res = await searchSearxng(q, {
+          ...(input.searchConfig ? input.searchConfig : {}),
+        });
+      } catch (err) {
+        console.warn('SearXNG search failed for query:', q, err);
+        return;
+      }
 
       let resultChunks: Chunk[] = [];
 
@@ -338,7 +353,7 @@ export const executeSearch = async (input: {
 
     const extractedFacts: Chunk[] = [];
 
-    const extractorPrompt = `
+    const extractorPrompt = getExtractorPrompt(`
       Assistant is an AI information extractor. Assistant will be shared with scraped information from a website along with the queries used to retrieve that information. Assistant's task is to extract relevant facts from the scraped data to answer the queries.
 
       ## Things to taken into consideration when extracting information:
@@ -370,7 +385,7 @@ export const executeSearch = async (input: {
         "extracted_facts": "- Fact 1\n- Fact 2\n- Fact 3"
       }
       </example_output>
-      `;
+      `);
 
     const extractorSchema = z.object({
       extracted_facts: z
@@ -419,6 +434,10 @@ export const executeSearch = async (input: {
               }
             }),
           );
+
+          if (scrapedData.links) {
+            accumulatedContent += `\n\n${scrapedData.links}`;
+          }
 
           extractedFacts.push({
             ...result,

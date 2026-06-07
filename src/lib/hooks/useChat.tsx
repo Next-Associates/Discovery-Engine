@@ -742,66 +742,105 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
     const messageIndex = messages.findIndex((m) => m.messageId === messageId);
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: message,
-        message: {
-          messageId: messageId,
-          chatId: chatId!,
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           content: message,
-        },
-        chatId: chatId!,
-        files: fileIds,
-        sources: sources,
-        optimizationMode: optimizationMode,
-        history: rewrite
-          ? chatHistory.current.slice(
-              0,
-              messageIndex === -1 ? undefined : messageIndex,
-            )
-          : chatHistory.current,
-        chatModel: {
-          key: chatModelProvider.key,
-          providerId: chatModelProvider.providerId,
-        },
-        embeddingModel: {
-          key: embeddingModelProvider.key,
-          providerId: embeddingModelProvider.providerId,
-        },
-        systemInstructions: localStorage.getItem('systemInstructions'),
-      }),
-    });
+          message: {
+            messageId: messageId,
+            chatId: chatId!,
+            content: message,
+          },
+          chatId: chatId!,
+          files: fileIds,
+          sources: sources,
+          optimizationMode: optimizationMode,
+          history: rewrite
+            ? chatHistory.current.slice(
+                0,
+                messageIndex === -1 ? undefined : messageIndex,
+              )
+            : chatHistory.current,
+          chatModel: {
+            key: chatModelProvider.key,
+            providerId: chatModelProvider.providerId,
+          },
+          embeddingModel: {
+            key: embeddingModelProvider.key,
+            providerId: embeddingModelProvider.providerId,
+          },
+          systemInstructions: localStorage.getItem('systemInstructions'),
+        }),
+      });
 
-    if (!res.body) throw new Error('No response body');
-
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder('utf-8');
-
-    let partialChunk = '';
-
-    const messageHandler = getMessageHandler(newMessage);
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      partialChunk += decoder.decode(value, { stream: true });
-
-      try {
-        const messages = partialChunk.split('\n');
-        for (const msg of messages) {
-          if (!msg.trim()) continue;
-          const json = JSON.parse(msg);
-          messageHandler(json);
-        }
-        partialChunk = '';
-      } catch (error) {
-        console.warn('Incomplete JSON, waiting for next chunk...');
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(
+          errBody?.message || `Chat request failed (${res.status})`,
+        );
       }
+
+      if (!res.body) throw new Error('No response body');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let partialChunk = '';
+      let receivedEnd = false;
+
+      const messageHandler = getMessageHandler(newMessage);
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        partialChunk += decoder.decode(value, { stream: true });
+
+        try {
+          const streamMessages = partialChunk.split('\n');
+          partialChunk = streamMessages.pop() ?? '';
+
+          for (const msg of streamMessages) {
+            if (!msg.trim()) continue;
+            const json = JSON.parse(msg);
+            if (json.type === 'messageEnd' || json.type === 'error') {
+              receivedEnd = true;
+            }
+            messageHandler(json);
+          }
+        } catch {
+          // wait for more chunks
+        }
+      }
+
+      if (!receivedEnd) {
+        toast.error('Connection closed before the answer finished.');
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.messageId === messageId
+              ? { ...msg, status: 'error' as const }
+              : msg,
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Chat stream failed:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to send message',
+      );
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.messageId === messageId
+            ? { ...msg, status: 'error' as const }
+            : msg,
+        ),
+      );
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -4,6 +4,7 @@ import { getResearcherPrompt } from '@/lib/prompts/search/researcher';
 import SessionManager from '@/lib/session';
 import { Message, ReasoningResearchBlock } from '@/lib/types';
 import formatChatHistoryAsString from '@/lib/utils/formatHistory';
+import { compareSourceTrust } from '@/lib/utils/trustedSources';
 import { ToolCall } from '@/lib/models/types';
 
 class Researcher {
@@ -168,6 +169,7 @@ class Researcher {
         researchBlockId: researchBlockId,
         fileIds: input.config.fileIds,
         mode: input.config.mode,
+        followUp: input.followUp,
       });
 
       actionOutput.push(...actionResults);
@@ -205,7 +207,8 @@ class Researcher {
 
         return result;
       })
-      .filter((r) => r !== undefined);
+      .filter((r) => r !== undefined)
+      .sort(compareSourceTrust);
 
     session.emitBlock({
       id: crypto.randomUUID(),
