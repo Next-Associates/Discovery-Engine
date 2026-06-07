@@ -7,6 +7,10 @@ import {
   SearchAgentConfig,
   SearchSources,
 } from '../../types';
+import {
+  formatSchemaParseError,
+  normalizeToolArguments,
+} from '@/lib/utils/normalizeStructuredOutput';
 
 class ActionRegistry {
   private static actions: Map<string, ResearchAction> = new Map();
@@ -68,6 +72,7 @@ class ActionRegistry {
       researchBlockId: string;
       fileIds: string[];
       mode: SearchAgentConfig['mode'];
+      followUp: string;
     },
   ) {
     const action = this.actions.get(name);
@@ -76,7 +81,16 @@ class ActionRegistry {
       throw new Error(`Action with name ${name} not found`);
     }
 
-    return action.execute(params, additionalConfig);
+    const normalized = normalizeToolArguments(name, params);
+    const parsed = action.schema.safeParse(normalized);
+
+    if (!parsed.success) {
+      throw new Error(
+        `Tool "${name}" arguments invalid: ${formatSchemaParseError(parsed.error)}`,
+      );
+    }
+
+    return action.execute(parsed.data, additionalConfig);
   }
 
   static async executeAll(
@@ -85,6 +99,7 @@ class ActionRegistry {
       researchBlockId: string;
       fileIds: string[];
       mode: SearchAgentConfig['mode'];
+      followUp: string;
     },
   ): Promise<ActionOutput[]> {
     const results: ActionOutput[] = [];

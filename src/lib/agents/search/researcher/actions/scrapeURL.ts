@@ -3,8 +3,24 @@ import { ResearchAction } from '../../types';
 import { Chunk, ReadingResearchBlock } from '@/lib/types';
 import Scraper from '@/lib/scraper';
 import { splitText } from '@/lib/utils/splitText';
+import { getExtractorPrompt } from '@/lib/prompts/search/extractor';
+import {
+  formatLinksSection,
+  formatSourcePagesSection,
+  formatUnverifiedDownloadsNote,
+  formatVerifiedLinksSection,
+  type ExtractedLink,
+  type VerifiedDownload,
+} from '@/lib/utils/extractLinks';
+import {
+  isAssetLikeUrl,
+  MAX_SCRAPE_URLS_PER_CALL,
+  MAX_VERIFY_URLS_PER_PAGE,
+  normalizeScrapeTargets,
+} from '@/lib/utils/assetPipeline';
+import { verifyDownloadUrls } from '@/lib/utils/verifyUrls';
 
-const extractorPrompt = `
+const extractorPrompt = getExtractorPrompt(`
                   Assistant is an AI information extractor. Assistant will be shared with scraped information from a website along with the queries used to retrieve that information. Assistant's task is to extract relevant facts from the scraped data to answer the queries.
             
                   ## Things to taken into consideration when extracting information:
@@ -36,7 +52,7 @@ const extractorPrompt = `
                     "extracted_facts": "- Fact 1\n- Fact 2\n- Fact 3"
                   }
                   </example_output>
-                  `;
+                  `);
 
 const extractorSchema = z.object({
   extracted_facts: z
@@ -51,21 +67,32 @@ const schema = z.object({
 });
 
 const actionDescription = `
-Use this tool to scrape and extract content from the provided URLs. This is useful when you the user has asked you to extract or summarize information from specific web pages. You can provide up to 3 URLs at a time. NEVER CALL THIS TOOL EXPLICITLY YOURSELF UNLESS INSTRUCTED TO DO SO BY THE USER.
-You should only call this tool when the user has specifically requested information from certain web pages, never call this yourself to get extra information without user instruction.
+Use this tool to scrape live content from specific web pages. REQUIRED whenever the user needs **assets**, **download links**, **datasets**, **files**, **direct URLs**, **releases**, **official/trusted sources**, or **portal item pages** — for any topic or website.
 
-For example, if the user says "Please summarize the content of https://example.com/article", you can call this tool with that URL to get the content and then provide the summary or "What does X mean according to https://example.com/page", you can call this tool with that URL to get the content and provide the explanation.
+Pipeline: search finds candidate pages → this tool scrapes them live → links are extracted and HTTP-verified → the writer cites only those URLs.
+
+Also use when:
+- The user names a URL or domain and needs current links from that site
+- Search snippets may be outdated (common for downloads and documentation)
+- A data portal item page (ArcGIS, GitHub releases, Hugging Face, Zenodo, etc.) needs live resolution
+
+Web search alone is not sufficient for asset/URL questions. Scrape the publisher's downloads, docs, releases, or item page — not only the homepage.
+
+Up to 3 URLs per call. Prefer official catalog pages over guessed direct file paths.
 `;
 
 const scrapeURLAction: ResearchAction<typeof schema> = {
   name: 'scrape_url',
   schema: schema,
   getToolDescription: () =>
-    'Use this tool to scrape and extract content from the provided URLs. This is useful when you the user has asked you to extract or summarize information from specific web pages. You can provide up to 3 URLs at a time. NEVER CALL THIS TOOL EXPLICITLY YOURSELF UNLESS INSTRUCTED TO DO SO BY THE USER.',
+    `Scrape live pages to extract and verify asset/download URLs (up to ${MAX_SCRAPE_URLS_PER_CALL} URLs per call). Use when the user needs files, datasets, direct links, releases, or official sources.`,
   getDescription: () => actionDescription,
   enabled: (_) => true,
   execute: async (params, additionalConfig) => {
-    params.urls = params.urls.slice(0, 3);
+    const expandedUrls = [
+      ...new Set(params.urls.flatMap((url) => normalizeScrapeTargets(url))),
+    ].slice(0, MAX_SCRAPE_URLS_PER_CALL);
+    const query = additionalConfig.followUp;
 
     let readingBlockId = crypto.randomUUID();
     let readingEmitted = false;
@@ -77,7 +104,7 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
     const results: Chunk[] = [];
 
     await Promise.all(
-      params.urls.map(async (url) => {
+      expandedUrls.map(async (url) => {
         try {
           const scraped = await Scraper.scrape(url);
 
@@ -162,7 +189,7 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
                       },
                       {
                         role: 'user',
-                        content: `<queries>Summarize</queries>\n<scraped_data>${chunk}</scraped_data>`,
+                        content: `<queries>${query}</queries>\n<scraped_data>${chunk}</scraped_data>`,
                       },
                     ],
                     schema: extractorSchema,
@@ -182,6 +209,63 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
             accumulatedContent = scraped.content;
           }
 
+          const extractedLinks: ExtractedLink[] = scraped.extractedLinks ?? [];
+
+          const downloadCandidates = extractedLinks
+            .filter((link) => isAssetLikeUrl(link.url))
+            .slice(0, MAX_VERIFY_URLS_PER_PAGE);
+
+          // Navigation/catalog links only — asset URLs go through verification below
+          const catalogLinks = extractedLinks.filter(
+            (link) => !isAssetLikeUrl(link.url),
+          );
+          const catalogLinksSection = formatLinksSection(catalogLinks);
+          if (catalogLinksSection) {
+            accumulatedContent += `\n\n${catalogLinksSection}`;
+          } else if (scraped.links && downloadCandidates.length === 0) {
+            accumulatedContent += `\n\n${scraped.links}`;
+          }
+
+          const sourceSection = formatSourcePagesSection([
+            { url, title: scraped.title },
+          ]);
+
+          if (downloadCandidates.length > 0) {
+            const verifications = await verifyDownloadUrls(
+              downloadCandidates.map((l) => ({
+                url: l.url,
+                sourceHref: l.sourceHref,
+              })),
+              MAX_VERIFY_URLS_PER_PAGE,
+              { referer: url },
+            );
+
+            const verifiedDownloads: VerifiedDownload[] = [];
+            downloadCandidates.forEach((link, i) => {
+              const v = verifications[i];
+              if (v?.ok && v.verifiedUrl) {
+                verifiedDownloads.push({
+                  label: link.label,
+                  url: v.verifiedUrl,
+                  status: v.status,
+                });
+              }
+            });
+
+            const verifiedSection =
+              formatVerifiedLinksSection(verifiedDownloads);
+
+            if (verifiedSection) {
+              accumulatedContent += `\n\n${verifiedSection}`;
+            } else {
+              accumulatedContent += `\n\n${formatUnverifiedDownloadsNote()}`;
+            }
+          }
+
+          if (sourceSection) {
+            accumulatedContent += `\n\n${sourceSection}`;
+          }
+
           results.push({
             content: accumulatedContent,
             metadata: {
@@ -190,8 +274,15 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
             },
           });
         } catch (error) {
+          const sourceSection = formatSourcePagesSection([{ url }]);
           results.push({
-            content: `Failed to fetch content from ${url}: ${error}`,
+            content: [
+              `Failed to fetch content from ${url}: ${error}`,
+              formatUnverifiedDownloadsNote(),
+              sourceSection,
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
             metadata: {
               url,
               title: `Error scraping ${url}`,

@@ -1,5 +1,8 @@
 import BaseEmbedding from '@/lib/models/base/embedding';
 import UploadStore from '@/lib/uploads/store';
+import { ASSET_RESEARCH_RULES } from '@/lib/utils/assetPipeline';
+
+const URL_RESEARCH_RULES = ASSET_RESEARCH_RULES;
 
 const getSpeedPrompt = (
   actionDesc: string,
@@ -72,6 +75,7 @@ const getSpeedPrompt = (
 - Default to web_search when information is missing or stale; keep queries targeted (max 3 per call).
 - Call done when you have gathered enough to answer or performed the required actions.
 - Do not invent tools. Do not return JSON.
+${URL_RESEARCH_RULES}
   </response_protocol>
 
   ${
@@ -173,6 +177,7 @@ const getBalancedPrompt = (
 - Do not stop after a single information-gathering call unless the task is trivial or prior results already cover the answer.
 - Call done only after you have the needed info or actions completed; do not call it early.
 - Do not invent tools. Do not return JSON.
+${URL_RESEARCH_RULES}
   </response_protocol>
 
   ${
@@ -303,6 +308,7 @@ const getQualityPrompt = (
 - Aim for 4-7 information-gathering calls covering different angles; cross-reference and follow up on interesting leads.
 - Call done only after comprehensive, multi-angle research is complete.
 - Do not invent tools. Do not return JSON.
+${URL_RESEARCH_RULES}
   </response_protocol>
 
   ${

@@ -118,6 +118,7 @@ export interface ResearchAction<
       researchBlockId: string;
       fileIds: string[];
       mode: SearchAgentConfig['mode'];
+      followUp: string;
     },
   ) => Promise<ActionOutput>;
 }
