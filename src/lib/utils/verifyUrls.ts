@@ -1,3 +1,4 @@
+import { isAssetLikeUrl } from './assetPipeline';
 import {
   isMalformedEmbeddedUrl,
   unwrapEmbeddedAbsoluteUrl,
@@ -13,6 +14,8 @@ export type UrlVerification = {
   ok: boolean;
   status?: number;
   verifiedUrl?: string;
+  /** Reachable asset URL (2xx) but response is HTML/form — not a direct file. */
+  requiresInteraction?: boolean;
 };
 
 export type VerifyPageContext = {
@@ -159,10 +162,39 @@ async function probeDownloadUrl(
       });
     }
 
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const looksLikeFile = responseLooksLikeFile(res, candidate);
+
+    if (looksLikeFile) {
+      return {
+        url: candidate,
+        candidate,
+        ok: true,
+        status: res.status,
+        verifiedUrl: res.url || candidate,
+      };
+    }
+
+    // Gated downloads: asset-shaped URL returns 2xx HTML (license form, login wall).
+    if (
+      res.ok &&
+      contentType.includes('text/html') &&
+      isAssetLikeUrl(candidate)
+    ) {
+      return {
+        url: candidate,
+        candidate,
+        ok: false,
+        requiresInteraction: true,
+        status: res.status,
+        verifiedUrl: res.url || candidate,
+      };
+    }
+
     return {
       url: candidate,
       candidate,
-      ok: responseLooksLikeFile(res, candidate),
+      ok: false,
       status: res.status,
       verifiedUrl: res.url || candidate,
     };
@@ -186,6 +218,8 @@ export async function verifyDownloadUrl(
     Boolean(pageContext),
   );
 
+  let interaction: UrlVerification | undefined;
+
   for (const candidate of candidates) {
     const result = await probeDownloadUrl(candidate, pageContext);
     if (result.ok) {
@@ -196,8 +230,18 @@ export async function verifyDownloadUrl(
         verifiedUrl: result.verifiedUrl ?? candidate,
       };
     }
+    if (result.requiresInteraction && !interaction) {
+      interaction = {
+        url: link.url,
+        ok: false,
+        requiresInteraction: true,
+        status: result.status,
+        verifiedUrl: result.verifiedUrl ?? candidate,
+      };
+    }
   }
 
+  if (interaction) return interaction;
   return { url: link.url, ok: false };
 }
 

@@ -108,6 +108,22 @@ export function extractLinksFromHtml(
     }
   });
 
+  // Download dropdowns: a <select> whose <option value="http…"> IS the download
+  // URL, triggered by onclick window.open(select.value). The URLs live in the
+  // static HTML — no click needed. (Country/other dropdowns have non-URL values
+  // and are skipped.)
+  document.querySelectorAll('select').forEach((select) => {
+    const selName = select.getAttribute('name') || select.getAttribute('id') || '';
+    const isDownloadSel = /format|download|export|output/i.test(selName);
+    select.querySelectorAll('option').forEach((opt) => {
+      const val = opt.getAttribute('value') ?? '';
+      if (!/^https?:\/\//i.test(val)) return;
+      const optLabel = (opt.textContent ?? '').trim();
+      const label = isDownloadSel && optLabel ? `${optLabel} (download)` : optLabel || 'Download option';
+      addLink(val, label);
+    });
+  });
+
   return links;
 }
 
@@ -154,6 +170,12 @@ export type VerifiedDownload = {
   status?: number;
 };
 
+export type InteractionRequiredDownload = {
+  label: string;
+  url: string;
+  status?: number;
+};
+
 export function formatVerifiedLinksSection(
   verified: VerifiedDownload[],
 ): string {
@@ -164,6 +186,19 @@ export function formatVerifiedLinksSection(
   );
 
   return `## Verified download links (live HTTP check passed — ONLY these may be cited as direct downloads)\n${lines.join('\n')}`;
+}
+
+export function formatInteractionRequiredLinksSection(
+  downloads: InteractionRequiredDownload[],
+): string {
+  if (downloads.length === 0) return '';
+
+  const lines = downloads.map(
+    (d) =>
+      `- ${d.label}: ${d.url} (HTTP ${d.status ?? 200}, requires user interaction)`,
+  );
+
+  return `## Downloads requiring user interaction (reachable asset URL — gated form/login; cite these as official assets, NOT as verified direct downloads)\n${lines.join('\n')}`;
 }
 
 export function formatSourcePagesSection(
@@ -179,7 +214,7 @@ export function formatSourcePagesSection(
 }
 
 export function formatUnverifiedDownloadsNote(): string {
-  return `## Direct downloads not verified\nAsset-like links were found on the page but none returned HTTP 200 after live checks. Do not list unverified or broken file URLs from any source. Cite only the source/catalog pages above.`;
+  return `## Direct downloads not verified\nAsset-like links were found on the page but none returned a direct file (HTTP 200 binary) nor a reachable gated asset URL. Do not list unverified or broken file URLs from any source. Cite verified downloads, interaction-required downloads, and/or source/catalog pages above.`;
 }
 
 export function mergeLinks(...groups: ExtractedLink[][]): ExtractedLink[] {
