@@ -1,0 +1,51 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+
+            REPO_DIR=~/vane
+
+            # Clone on first deploy, pull on subsequent ones
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              echo "Fresh clone..."
+              git clone https://github.com/Next-Associates/Discovery-Engine.git "$REPO_DIR"
+            else
+              echo "Pulling latest changes..."
+              cd "$REPO_DIR"
+              git fetch origin
+              git reset --hard origin/master
+            fi
+
+            cd "$REPO_DIR"
+
+            echo "Stopping existing containers..."
+            docker compose down || true
+
+            echo "Building image (no cache)..."
+            docker compose build --no-cache
+
+            echo "Starting containers..."
+            docker compose up -d
+
+            echo "Pruning dangling images..."
+            docker image prune -f
+
+            echo "Deploy complete. Running containers:"
+            docker compose ps
