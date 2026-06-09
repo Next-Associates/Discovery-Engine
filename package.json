@@ -3,6 +3,7 @@
   "version": "1.12.2",
   "license": "MIT",
   "scripts": {
+    "predev": "node scripts/ensure-node-version.mjs",
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",

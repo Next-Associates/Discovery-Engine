@@ -3,6 +3,9 @@ node_modules/
 npm-debug.log
 yarn-error.log
 
+# Generated asset-discovery run captures (large; not source)
+phase2-docs/phase2d_e2e_full_capture.json
+
 # Build output
 .next/
 out/
