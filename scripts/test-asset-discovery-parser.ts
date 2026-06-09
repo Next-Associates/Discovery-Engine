@@ -16,7 +16,7 @@ import {
 import {
   parseVerifiedDownloads,
   parseInteractionRequiredDownloads,
-} from '../src/app/api/asset-discovery/route';
+} from '../src/lib/agents/assetDiscovery/parseDownloads';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
