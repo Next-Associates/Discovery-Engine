@@ -20,7 +20,7 @@ jobs:
           script: |
             set -e
 
-            REPO_DIR=~/vane
+            REPO_DIR=/www/wwwroot/jenkins_workspace/Discovery-Engine
 
             # Clone on first deploy, pull on subsequent ones
             if [ ! -d "$REPO_DIR/.git" ]; then
