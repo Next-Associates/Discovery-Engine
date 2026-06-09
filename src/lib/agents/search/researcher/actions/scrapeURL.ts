@@ -9,8 +9,10 @@ import {
   formatSourcePagesSection,
   formatUnverifiedDownloadsNote,
   formatVerifiedLinksSection,
+  formatInteractionRequiredLinksSection,
   type ExtractedLink,
   type VerifiedDownload,
+  type InteractionRequiredDownload,
 } from '@/lib/utils/extractLinks';
 import {
   isAssetLikeUrl,
@@ -241,10 +243,17 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
             );
 
             const verifiedDownloads: VerifiedDownload[] = [];
+            const interactionRequired: InteractionRequiredDownload[] = [];
             downloadCandidates.forEach((link, i) => {
               const v = verifications[i];
               if (v?.ok && v.verifiedUrl) {
                 verifiedDownloads.push({
+                  label: link.label,
+                  url: v.verifiedUrl,
+                  status: v.status,
+                });
+              } else if (v?.requiresInteraction && v.verifiedUrl) {
+                interactionRequired.push({
                   label: link.label,
                   url: v.verifiedUrl,
                   status: v.status,
@@ -254,10 +263,16 @@ const scrapeURLAction: ResearchAction<typeof schema> = {
 
             const verifiedSection =
               formatVerifiedLinksSection(verifiedDownloads);
+            const interactionSection =
+              formatInteractionRequiredLinksSection(interactionRequired);
 
             if (verifiedSection) {
               accumulatedContent += `\n\n${verifiedSection}`;
-            } else {
+            }
+            if (interactionSection) {
+              accumulatedContent += `\n\n${interactionSection}`;
+            }
+            if (!verifiedSection && !interactionSection) {
               accumulatedContent += `\n\n${formatUnverifiedDownloadsNote()}`;
             }
           }
